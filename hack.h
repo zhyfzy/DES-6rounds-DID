@@ -39,7 +39,7 @@ public:
             avail_index[0] = 1;
             avail_index[1] = 4;
         }
-        random_engine.seed(2018);
+        random_engine.seed((ull)time(nullptr));
     }
 
     bool inputCheck(const ull &inA, const ull &inB){
@@ -96,7 +96,7 @@ public:
             if (in==0)
                 inA = random_engine();
             else{
-                inA = in;
+                inA = in; // 使用给定的明文
             }
             ull diff = (l_match << 32) | r_match;
             inB = calcInvIp(calcIp(inA) ^ diff);
@@ -107,7 +107,7 @@ public:
 
             if (pre_l3 == ((r_match << 32) | l_match)){
                 if (availCheck(inA, inB, outA, outB)){
-                    // get appropriate cipher-plaintexts
+                    // 找到了合适的明密文对
                     printf("--- new cp ---\n");
                     print_long_hex(inA);
                     print_long_hex(inB);
@@ -123,16 +123,14 @@ public:
 
 class DesHacker {
 private:
-    vector<set<int> > ret_sub_key; // 输入到每个S盒可能的子密钥。
-    ull pc_mask; //二进制中的0表示需要二进制枚举的位
-    ull enum_mask;
     ull inA, inB, outA, outB; // 一组明文和密文
     ull inC, inD, outC, outD; // 一组明文和密文
     DesHackHelper hackerA;
     DesHackHelper hackerB;
-    vector<int> enum_binary_position;
-    bool found_key;
-    ull ret_key;
+    vector<set<int> > ret_sub_key; // 输入到每个S盒可能的子密钥。
+    vector<int> enum_binary_position; // 需要枚举的14个二进制位的位置
+    bool found_key; // 是否找到密钥
+    ull ret_key; // 存放找到的密钥
 
     ull invPc(ull pc2_out) {
         ull pc2_in = calcInvPc2(pc2_out);
@@ -191,6 +189,7 @@ private:
     }
 
 public:
+//    ull target_key;
     DesHacker():hackerA(1),hackerB(2),found_key(false),ret_key(0){
         ret_sub_key.resize(8);
         for (int i=0;i<8;i++){
@@ -199,8 +198,8 @@ public:
         inA = inB = outA = outB = 0;
         inC = inD = outC = outD = 0;
         enum_binary_position.clear();
-        enum_mask = calcInvPc1((1ULL << 56) - 1);
-        pc_mask = invPc(0xfff03fffffff) ^ (~enum_mask); // 其中等于0的二进制位是需要最后时枚举的，一共14位
+        ull enum_mask = calcInvPc1((1ULL << 56) - 1);
+        ull pc_mask = invPc(0xfff03fffffff) ^ (~enum_mask); // 其中等于0的二进制位是需要最后时枚举的，一共14位
         ull t = pc_mask;
         for (int i=0;i<64;i++){
             if (!(t & 1))
@@ -220,7 +219,7 @@ public:
             return false;
     }
 
-    bool hack(vector<int> &_ret_key) {
+    bool hack() {
         found_key = false;
         if (!hackerA.hack(inA, inB, outA, outB, &ret_sub_key))
             return false;
@@ -228,18 +227,23 @@ public:
         if (!hackerB.hack(inC, inD, outC, outD, &ret_sub_key))
             return false;
 
-        max_process = 1;
+        max_process = 1; // 用于展示计算进度
         for(int i=0;i<8;i++){
             if (i==2) continue;
             max_process *= ret_sub_key[i].size();
         }
 
-        combine(0, 0ULL);
+        combine(0, 0ULL); // 对每个可能的密钥进行枚举
         return found_key;
     }
 
     ull getKey(){
-        return ret_key;
+        if (found_key)
+            return ret_key;
+        else{
+            printf("Key not found...\n");
+            return 0;
+        }
     }
 };
 
