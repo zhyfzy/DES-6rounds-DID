@@ -2,7 +2,7 @@
 #define CONST_H
 #include <cstdio>
 #define print_long_hex(x) printf(""#x": %016llX\n",(x))
-#define print_hex(x) printf(""#x": %08X\n",(x))
+#define print_hex(x) printf(""#x": %06X\n",(x))
 
 typedef long long ll;
 typedef unsigned long long ull;

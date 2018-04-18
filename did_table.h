@@ -27,7 +27,7 @@ public:
                 int in_d = x ^ y;
                 int out_d = calcSingleSbox(index,x) ^ calcSingleSbox(index,y);
                 table[in_d][out_d].push_back(x);
-                table[in_d][out_d].push_back(y);
+//                table[in_d][out_d].push_back(y);
             }
         }
     }

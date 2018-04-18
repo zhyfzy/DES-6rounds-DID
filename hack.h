@@ -11,6 +11,8 @@
 
 using namespace std;
 
+independent_bits_engine<default_random_engine,64,ull> random_engine;
+
 static DidTable did;
 
 class DesHackHelper{
@@ -19,7 +21,6 @@ private:
     ull r_match;
     size_t avail_index_num;
     int avail_index[8];
-    independent_bits_engine<default_random_engine,64,ull> random_engine;
 
 public:
     DesHackHelper(int mode){
@@ -39,7 +40,6 @@ public:
             avail_index[0] = 1;
             avail_index[1] = 4;
         }
-        random_engine.seed((ull)time(nullptr));
     }
 
     bool inputCheck(const ull &inA, const ull &inB){
@@ -83,8 +83,17 @@ public:
                 return false;
             }
             if (ret_key != nullptr){
+                set<int> t;
+                t.clear();
                 for (int j=0;j<cdt.size();j++){
-                    (*ret_key)[index].insert(cdt[j] ^ sub_eA);
+                    int key_maybe = cdt[j] ^ sub_eA;
+                    if ((*ret_key)[index].count(key_maybe)){
+                        t.insert(key_maybe);
+                    }
+                }
+                (*ret_key)[index].clear();
+                for (int j: t){
+                    (*ret_key)[index].insert(j);
                 }
             }
         }
@@ -108,11 +117,11 @@ public:
             if (pre_l3 == ((r_match << 32) | l_match)){
                 if (availCheck(inA, inB, outA, outB)){
                     // 找到了合适的明密文对
-                    printf("--- new cp ---\n");
-                    print_long_hex(inA);
-                    print_long_hex(inB);
-                    print_long_hex(outA);
-                    print_long_hex(outB);
+//                    printf("--- new cp ---\n");
+//                    print_long_hex(inA);
+//                    print_long_hex(inB);
+//                    print_long_hex(outA);
+//                    print_long_hex(outB);
                     return;
                 }
             }
@@ -123,11 +132,16 @@ public:
 
 class DesHacker {
 private:
-    ull inA, inB, outA, outB; // 一组明文和密文
-    ull inC, inD, outC, outD; // 一组明文和密文
+    struct PairCp{ // a pair of cipher and plaintext 一组明文和密文
+        ull inA, inB, outA, outB;
+        PairCp(const ull &inA, const ull &inB, const ull &outA, const ull &outB):
+                inA(inA), inB(inB), outA(outA), outB(outB){}
+    };
+    vector<PairCp> cp_m1; // 满足第一种差分特征的明密文对
+    vector<PairCp> cp_m2; // 满足第二种差分特征的明密文对
     DesHackHelper hackerA;
     DesHackHelper hackerB;
-    vector<set<int> > ret_sub_key; // 输入到每个S盒可能的子密钥。
+    vector<set<int> > ret_sub_key; // 输入到每个S盒可能的子密钥。一共有64中可能性
     vector<int> enum_binary_position; // 需要枚举的14个二进制位的位置
     bool found_key; // 是否找到密钥
     ull ret_key; // 存放找到的密钥
@@ -152,7 +166,9 @@ private:
         cur_process++;
         if (cur_process % 100 == 0)
             printf("process: %d/%d\n",cur_process, max_process);
-
+        if (cur_process > max_process){
+            cur_process = max_process;
+        }
         int enum_max = (1 << enum_binary_position.size()) - 1;
 //        if ((target_key & invPc(0xfff03fffffff)) == num)
         for (int i = 0; i < enum_max; i++) {
@@ -164,7 +180,7 @@ private:
                 }
                 bin >>= 1;
             }
-            if (desEncrypt(inA, key) == outA) {
+            if (desEncrypt(cp_m1[0].inA, key) == cp_m1[0].outA) {
                 ret_key = key;
                 found_key = true;
                 break;
@@ -178,8 +194,10 @@ private:
             binaryEnum(out);
             return;
         }
-        if (deep == 2)
+        if (deep == 2){
             combine(deep + 1, num);
+            return;
+        }
         for (int i: ret_sub_key[deep]) {
             int shift = (7 - deep) * 6;
             ull cur = num | (((ull)i) << shift);
@@ -191,12 +209,15 @@ private:
 public:
 //    ull target_key;
     DesHacker():hackerA(1),hackerB(2),found_key(false),ret_key(0){
+        random_engine.seed((ull)time(nullptr));
         ret_sub_key.resize(8);
         for (int i=0;i<8;i++){
-            ret_sub_key.clear();
+            for (int j=0;j<64;j++){
+                ret_sub_key[i].insert(j); // 一开始存放所有可能的情况，随着分析过程逐步筛减。
+            }
         }
-        inA = inB = outA = outB = 0;
-        inC = inD = outC = outD = 0;
+        cp_m1.clear();
+        cp_m2.clear();
         enum_binary_position.clear();
         ull enum_mask = calcInvPc1((1ULL << 56) - 1);
         ull pc_mask = invPc(0xfff03fffffff) ^ (~enum_mask); // 其中等于0的二进制位是需要最后时枚举的，一共14位
@@ -210,10 +231,10 @@ public:
 
     bool addCipherPlaintexts(ull in1, ull in2, ull out1, ull out2){
         if (hackerA.inputCheck(in1, in2)){
-            inA = in1; inB = in2; outA = out1; outB = out2;
+            cp_m1.push_back(PairCp(in1, in2, out1, out2));
             return true;
         } else if (hackerB.inputCheck(in1, in2)){
-            inC = in1; inD = in2; outC = out1; outD = out2;
+            cp_m2.push_back(PairCp(in1, in2, out1, out2));
             return true;
         } else
             return false;
@@ -221,11 +242,19 @@ public:
 
     bool hack() {
         found_key = false;
-        if (!hackerA.hack(inA, inB, outA, outB, &ret_sub_key))
+        if (cp_m1.empty() || cp_m2.empty()){
+            printf("At least one pair of cipher and plaintexts for each mode...\n");
             return false;
+        }
 
-        if (!hackerB.hack(inC, inD, outC, outD, &ret_sub_key))
-            return false;
+        for (int i=0;i<cp_m1.size();i++){
+            if (!hackerA.hack(cp_m1[i].inA, cp_m1[i].inB, cp_m1[i].outA, cp_m1[i].outB, &ret_sub_key))
+                return false;
+        }
+        for (int i=0;i<cp_m2.size();i++){
+            if (!hackerB.hack(cp_m2[i].inA, cp_m2[i].inB, cp_m2[i].outA, cp_m2[i].outB, &ret_sub_key))
+                return false;
+        }
 
         max_process = 1; // 用于展示计算进度
         for(int i=0;i<8;i++){
